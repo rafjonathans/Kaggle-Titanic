@@ -1,2 +1,2 @@
 # Kaggle-Titanic
- Classification - Predict Titanic Survivor
+ Classification - Predict Titanic Survivor using R
