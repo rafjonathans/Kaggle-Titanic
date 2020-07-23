@@ -1,0 +1,516 @@
+---
+title: "Titanic-v2_1"
+author: "RJ"
+date: "5/1/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+# Kaggle Titanic
+
+This document summarize the solution made by RJ to answer the Kaggle Titanic Competition
+
+## Data Preparation
+
+Dataset can be downloaded from https://www.kaggle.com/c/titanic/data
+
+### Read the dataset
+Initially, set the working directory
+```{r}
+
+setwd("F:/RStudio/Datasets/Kaggle-Titanic")
+
+# Or simply use shortcut ctrl+shift+H
+
+train <- read.csv(choose.files(caption = "SELECT THE TRAIN.CSV FILE"))
+test <- read.csv(choose.files(caption = "SELECT THE TEST.CSV FILE"))
+
+tail(train)
+head(test)
+
+```
+
+
+### Check the dataset
+This part to check the data structure
+
+```{r}
+print("Train data structure")
+str(train)
+print("")
+print("Test data structure")
+str(test)
+```
+
+As can be seen in the data structure.
+- In train data. There are NA values in Age, Missing value in cabin and embarked
+- In test data. There are missing value in cabin and embarked
+
+A further action taken to ensure the missing and NA values total.
+```{r}
+print("Train NA value")
+sapply(train, function(x) sum(is.na(x)))
+print("Train missing value")
+sapply(train, function(x) sum(x == ""))
+print("")
+print("----------SPACE-------------")
+print("")
+print("Test NA value")
+sapply(test, function(x) sum(is.na(x)))
+print("Test missing value")
+sapply(test, function(x) sum(x == ""))
+
+```
+
+A detailed check shows that the test$Age also has a NA value. Raw data will be pre processed before data analysis
+Test data only missing the Survived column, which is the quest to predict this value. Aside from Survived information, test data contains variables which is usefull to complete the missing and NA values.
+
+
+#### Join train and test dataset
+As test dataset has no Survive column, it is better to get a new Survived column in test dataset. Next, join with the train data
+```{r}
+# Add the Survived column in test dataset. Assuming it will be NA value
+test$Survived <- NA
+
+all_titanic <- rbind(train, test)
+all_titanic[sample(nrow(all_titanic), 10),]
+
+```
+
+Check again the missing and NA values
+```{r}
+print("All data NA value")
+sapply(all_titanic, function(x) sum(is.na(x)))
+print("All data missing value")
+sapply(all_titanic, function(x) sum(x == ""))
+```
+
+Check again the data structure
+```{r}
+str(all_titanic)
+```
+
+
+### Age data cleaning
+Age data will be filled by estimation of each title found in the passenger name
+```{r}
+
+# Extract the title
+library(qdapRegex)
+
+title <- as.character(rm_between(text.var = all_titanic$Name, left = ",", right = ".", extract = TRUE, ))
+
+title_age <- data.frame(title, all_titanic$Age)
+
+# Summarize the title and age
+library(dplyr)
+title_age_avg <- summarise(group_by(title_age, title_age$title),
+          mean(all_titanic.Age, na.rm = TRUE)) 
+
+title_age_count <- count(title_age, title)
+title_age_median <- summarise(group_by(title_age, title_age$title),
+          median(all_titanic.Age, na.rm = TRUE))
+
+title_age_median
+title_age_count
+title_age_avg
+
+```
+
+
+
+```{r}
+
+clean_age <- title_age %>%
+# Join the median value considering the title  
+left_join(y = title_age_median, by = c("title" = "title_age$title")) %>%
+# Replace the NA value in the original Age column 
+mutate(all_titanic.Age = coalesce(all_titanic.Age, `median(all_titanic.Age, na.rm = TRUE)`))
+# Rename column names
+colnames(clean_age) <- c("Title","Cleaned_Age", "Median_Age")
+head(clean_age)
+```
+
+
+Send the clean Age information to the dataset
+```{r}
+all_titanic$Age <- clean_age$Cleaned_Age
+
+# (nrow(train)+1):(nrow(train)+nrow(test))
+
+# all_titanic[(nrow(train)+1):(nrow(train)+nrow(test)),]$Age
+```
+
+
+### A different approach to get age estimation
+This method using random forest method, which is later produce a regression to predict the missing age. 
+At this point, the random forest makes a regression model
+```{r}
+str(title_age)
+a <- title_age[!is.na(title_age$all_titanic.Age),]
+tail(a)
+b <- title_age[is.na(title_age$all_titanic.Age),]
+tail(b)
+
+str(title_age)
+
+library(randomForest)
+age_eq <- "all_titanic.Age ~ title"
+age_for <- as.formula(age_eq)
+
+age_rf <- randomForest(age_for, a, ntree = 500, mtry = 1, nodesize = 0.01 * nrow(b))
+age_rf
+
+```
+
+Generated model is then used and compared to the median estimation 
+```{r}
+c <- data.frame(title_age_avg$`title_age$title`, as.numeric(NA))
+colnames(c) <- colnames(b)
+
+age_rf_predict <- predict(age_rf, newdata = c)
+compare <- data.frame(title_age_median, age_rf_predict)
+colnames(compare) <- c("Title", "RandomForest", "Median")
+
+compare$diff <- (compare$Median-compare$RandomForest)/compare$Median
+compare$TotalData <- title_age_count$n
+compare
+
+```
+
+As can be seen there is a difference between median and random forest estimation. At this point, it is unknown which is the accurate estimation.
+From this point, the value generated from median method is used. 
+
+### Embark data cleaning 
+```{r}
+
+# Summarize the embarked information
+embarked <- count(all_titanic, all_titanic$Embarked)
+embarked <- data.frame(embarked, embarked$n/sum(embarked$n))
+colnames(embarked) <- c("Embarked","Count","Percentage")
+embarked
+
+# Assumption taken on embarked location
+embark_assumed <- which(embarked$Percentage == max(embarked$Percentage))
+embarked[embark_assumed,1]
+
+all_titanic[all_titanic$Embarked == "",]
+
+```
+
+From this point, it is found that there are 2 missing Embarked statuses. It is assumed that the highest occurence be the replacement for the missing information.
+
+```{r}
+
+all_titanic[all_titanic$Embarked == "", "Embarked"] <- embarked[embark_assumed,1]
+
+all_titanic[all_titanic$Ticket == "113572",]
+
+
+```
+
+
+### Fare data cleaning
+There is one data missing from the train data in Fare variable
+```{r}
+ 
+all_titanic[is.na(all_titanic$Fare),]
+
+```
+
+To manage this, get the class and embarked information. Previously "Embarked" data.frame, it summarizes the total count of each embarked information. As the missing fare will be estimated using the embarked information, "Embarked" data.frame will be used.
+
+```{r}
+# number of 
+embarked
+fare_estimation <- data.frame(Pclass =c(1,2,3))
+fare_estimation[1]
+embarked[1,2]
+for (x in 1:(nrow(embarked)-1)) {
+  print(x)
+  fare_estimation[x+1] <- summarise(group_by(all_titanic[all_titanic$Embarked == embarked[x+1,1],], Pclass),
+            median(Fare, na.rm = T))$`median(Fare, na.rm = T)` %>% data.frame()
+  
+}
+
+colnames(fare_estimation) <- c("Pclass",as.character(embarked$Embarked[2:4]))
+fare_estimation
+
+fare_estimated <- fare_estimation[all_titanic[is.na(all_titanic$Fare),"Pclass"],
+                all_titanic[is.na(all_titanic$Fare),"Embarked"]]
+
+all_titanic[is.na(all_titanic$Fare), "Fare"] <- fare_estimated
+```
+
+
+Cleaned variables are Age, Fare, and Embarked. Lets check
+
+```{r}
+
+print("All data NA value")
+sapply(all_titanic, function(x) sum(is.na(x)))
+print("All data missing value")
+sapply(all_titanic, function(x) sum(x == ""))
+
+```
+
+### Return the cleaned data to the train and test data.frame
+
+```{r}
+
+train_cleaned <- all_titanic[1:nrow(train),]
+test_cleaned <- all_titanic[(nrow(train)+1):(nrow(train)+nrow(test)),]
+
+```
+
+## Data training
+The cleaned train data.frame is then used to generate the model. The used method is randomforest. Data structure need to be adjusted.
+
+```{r}
+str(train_cleaned)
+
+```
+
+### Change the data type
+As can be seen, there are values that explain the passenger status in a category, such as 
+  - Survived (Survived[1] OR Not Survived [0])
+  - Pclass (Tickec Class [1,2,3], would be like High Class, Medium Class or Low Class ticket)
+  - Sex (Female or Male)
+  - Cabin (Cabin Location)
+  - Embarked (Embark location, from "Cherbourg" "Queenstown" or "Southampton")
+
+But, only Sex and Embarked that already in Factor data type. Cabin information at this point will not be used as the missing information is too much.
+So, the Survived and the Pclass will be converted to Factor data type.
+
+```{r}
+
+train_cleaned$Survived <- as.factor(train_cleaned$Survived)
+train_cleaned$Pclass <- as.factor(train_cleaned$Pclass)
+
+str(train_cleaned)
+```
+
+### Model v1
+#### Model preparation
+```{r}
+
+survived_eq <- "Survived ~ + Pclass + Sex + SibSp + Parch + Fare + Embarked"
+survived_for <- as.formula(survived_eq)
+
+# Call random forest
+
+library(randomForest)
+
+survived_model <- randomForest(formula = survived_for, data = train_cleaned, ntree = 500, mtry = 3, nodesize = 0.01 * nrow(test_cleaned))
+survived_model
+
+```
+
+#### Model used to test_cleaned
+```{r}
+str(test_cleaned)
+
+test_cleaned$Survived <- as.factor(test_cleaned$Survived)
+test_cleaned$Pclass <- as.factor(test_cleaned$Pclass)
+
+test_survival_v1 <- predict(survived_model, test_cleaned) 
+test_survival_v1_table <- data.frame(Survived = test_survival_v1, row.names = )
+
+submission_v1 <- data.frame(PassengerId = rownames(test_survival_v1_table), Survived = test_survival_v1_table$Survived)
+head(submission_v1)
+
+write.csv(submission_v1, file = "Titanic_Model-v1.csv", row.names = FALSE)
+```
+
+### Analyze Model v1
+
+```{r}
+
+v1_error <- data.frame(
+Trees = rep(1:nrow(survived_model$err.rate), times=3),
+Type = rep(c("OOB", "NOT Survived", "Survived"), each = nrow(survived_model$err.rate)),
+Error = c(survived_model$err.rate[,"OOB"],
+  survived_model$err.rate[,"0"],
+  survived_model$err.rate[,"1"])
+)
+tail(v1_error)
+
+# Visualize error
+library(ggplot2)
+ggplot(v1_error, aes(v1_error$Trees, v1_error$Error)) +
+  geom_line(aes(color = v1_error$Type))
+
+```
+
+
+```{r}
+oob.values <- vector(length = 5)
+
+for (x in 1:6) {
+temp_model <- randomForest(formula = survived_for, data = train_cleaned, ntree = 500, mtry = x, nodesize = 0.02 * nrow(train_cleaned))
+oob.values[x] <- temp_model$err.rate[nrow(temp_model$err.rate),1]  
+}
+
+oob.values
+temp_model
+
+```
+
+### Generate model v2 using the temp model created
+```{r}
+
+test_survival_v2 <- predict(temp_model, newdata = test_cleaned)
+
+test_survival_v2_table <- data.frame(Survived = test_survival_v2, row.names = )
+
+submission_v2 <- data.frame(PassengerId = rownames(test_survival_v2_table), Survived = test_survival_v2_table$Survived)
+head(submission_v2)
+
+write.csv(submission_v2, file = "Titanic_Model-v2.csv", row.names = FALSE)
+
+
+```
+
+
+## Crunch ticket number information
+
+```{r}
+
+all_titanic$Ticket %>%
+  table() %>%
+  head()
+
+ticket_test <- data.frame(all_titanic$Ticket)
+head(ticket_test)
+accompany <- data.frame(table(ticket_test))
+head(ticket_test)
+
+all_titanic$PassAccompany <-
+  left_join(x = ticket_test, y = accompany, by = c("all_titanic.Ticket" = "ticket_test"))$Freq
+
+
+```
+
+### Redo Model
+
+```{r}
+str(all_titanic)
+```
+
+Data structure edit
+
+```{r}
+
+all_titanic$Survived <- as.factor(all_titanic$Survived)
+all_titanic$Pclass <- as.factor(all_titanic$Pclass)
+all_titanic$PassAccompany <- as.factor(all_titanic$PassAccompany)
+
+str(all_titanic)
+
+```
+
+
+Return to train and test cleaned data
+
+```{r}
+
+train_cleaned_v3 <- all_titanic[1:nrow(train),]
+test_cleaned_v3 <- all_titanic[(nrow(train)+1):(nrow(train)+nrow(test)),]
+
+```
+
+Generate model
+
+```{r}
+
+survived_eq_v3 <- "Survived ~ + Pclass + Sex + SibSp + Parch + Fare + Embarked + PassAccompany"
+survived_for_v3 <- as.formula(survived_eq_v3)
+
+# Call random forest
+
+# library(randomForest)
+
+survived_model_v3 <- randomForest(formula = survived_for_v3, data = train_cleaned_v3, ntree = 500, mtry = 7, nodesize = 0.01 * nrow(train_cleaned_v3))
+survived_model_v3
+
+```
+
+Analyze error v3
+
+```{r}
+
+v3_error <- data.frame(
+Trees = rep(1:nrow(survived_model_v3$err.rate), times=3),
+Type = rep(c("OOB", "NOT Survived", "Survived"), each = nrow(survived_model_v3$err.rate)),
+Error = c(survived_model_v3$err.rate[,"OOB"],
+  survived_model_v3$err.rate[,"0"],
+  survived_model_v3$err.rate[,"1"])
+)
+tail(v3_error)
+
+# Visualize error
+
+ggplot(v3_error, aes(v3_error$Trees, v3_error$Error)) +
+  geom_line(aes(color = v3_error$Type))
+
+```
+
+
+```{r}
+oob.values_v3 <- vector(length = 7)
+
+for (x in 1:7) {
+temp_model_v3 <- randomForest(formula = survived_for_v3, data = train_cleaned_v3, ntree = 500, mtry = x, nodesize = 0.01 * nrow(train_cleaned_v3))
+oob.values_v3[x] <- temp_model_v3$err.rate[nrow(temp_model_v3$err.rate),1]  
+}
+
+oob.values
+
+```
+
+Generate test model v3
+
+```{r}
+
+
+test_survival_v3 <- predict(survived_model_v3, newdata = test_cleaned_v3)
+
+test_survival_v3_table <- data.frame(Survived = test_survival_v3, row.names = )
+
+submission_v3 <- data.frame(PassengerId = rownames(test_survival_v3_table), Survived = test_survival_v3_table$Survived)
+head(submission_v3)
+
+write.csv(submission_v3, file = "Titanic_Model-v3A.csv", row.names = FALSE)
+
+```
+
+
+### AT THIS POINT, BEST RESULT ACHIEVED BY MODEL V2
+
+
+```{r}
+
+survived_eq_v4 <- "Survived ~ + Pclass + Sex + SibSp + Parch + Fare + Embarked + PassAccompany"
+survived_for_v4 <- as.formula(survived_eq_v4)
+
+# Call random forest
+
+# library(randomForest)
+
+survived_model_v4 <- randomForest(formula = survived_for_v4, data = train_cleaned_v3, ntree = 2000, mtry = 7, nodesize = 0.01 * nrow(train_cleaned_v3))
+survived_model_v4
+
+sum
+
+test_survival_v4 <- predict(survived_model_v4, newdata = test_cleaned_v3)
+
+test_survival_v4_table <- data.frame(Survived = test_survival_v4, row.names = )
+
+submission_v4 <- data.frame(PassengerId = rownames(test_survival_v4_table), Survived = test_survival_v4_table$Survived)
+head(submission_v4)
+
+write.csv(submission_v4, file = "Titanic_Model-v4.csv", row.names = FALSE)
+```
+

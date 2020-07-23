@@ -1,0 +1,456 @@
+---
+title: "Kaggle-Titanic"
+author: "RJ"
+date: "4/25/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+# START THE TITANIC GAME
+## Get the Titanic train and test file
+```{r}
+
+test <- read.csv(choose.files(caption = "Select csv file"), stringsAsFactors=FALSE)
+train <- read.csv(choose.files(caption = "Select train csv file"), stringsAsFactors=FALSE)
+summary(test)
+summary(train)
+
+```
+
+
+## Cleaning train data set
+### Check total blank and NA data
+```{r}
+
+print("NA value")
+sapply(train, function(x) sum(is.na(x)))
+print("Blank")
+sapply(train, function(x) sum(x == ""))
+
+```
+
+### Age data cleaning
+#### Age distribution
+```{r}
+
+summary(train$Age)
+hist(train$Age, breaks = 20)
+
+```
+
+
+#### Check the name relation to age
+```{r}
+# Extract the title
+library(qdapRegex)
+
+fullname <- data.frame(train$Name)
+title <- as.character(rm_between(text.var = train$Name, left = ",", right = ".", extract = TRUE, ))
+
+title_age <- data.frame(title, fullname, train$Age)
+
+# Summarize the title and age
+library(dplyr)
+title_age_avg <- summarise(group_by(title_age, title_age$title),
+          mean(train.Age, na.rm = TRUE)) 
+
+title_age_count <- count(title_age, title)
+title_age_median <- summarise(group_by(title_age, title_age$title),
+          median(train.Age, na.rm = TRUE))
+
+title_age_median
+title_age_count
+title_age_avg
+```
+
+#### Create dataset with clean Age column
+```{r}
+
+clean_age <- title_age %>%
+# Join the median value considering the title  
+left_join(y = title_age_median, by = c("title" = "title_age$title")) %>%
+# Replace the NA value in the original Age column 
+mutate(train.Age = coalesce(train.Age, `median(train.Age, na.rm = TRUE)`)) 
+# Rename column names
+colnames(clean_age) <- c("Title", "Fullname","Age", "Median_Age")
+clean_age
+
+```
+
+
+### Embark data cleaning
+#### Check cabin summary
+
+```{r}
+# Summarize the embarked information
+embarked <- count(train, train$Embarked)
+embarked <- data.frame(embarked, embarked$n/sum(embarked$n))
+colnames(embarked) <- c("Embarked","Count","Percentage")
+embarked
+
+# Assumption taken on embarked location
+embark_assumed <- which(embarked$Percentage == max(embarked$Percentage))
+embarked[embark_assumed,1]
+
+```
+
+
+### Cabin data cleaning
+
+```{r}
+count(train, train$Cabin)
+
+# Get the cabin grouping
+a <- train
+
+a$cabin_group <-substring(train$Cabin, first = 1, last = 1)
+
+  summarise(group_by(a, cabin_group),
+            median(Fare, na.rm = T))
+  
+  summarise(group_by(a[which(a$Embarked == "C"),], cabin_group),
+            median(Fare, na.rm = T))
+  count(a[which(a$Embarked == "C"),], cabin_group)
+  
+
+  summarise(group_by(a[which(a$Embarked == "Q"),], cabin_group),
+            median(Fare, na.rm = T))
+  count(a[which(a$Embarked == "Q"),], cabin_group)
+  
+  
+  summarise(group_by(a[which(a$Embarked == "S"),], cabin_group),
+            median(Fare, na.rm = T))
+  count(a[which(a$Embarked == "S"),], cabin_group)
+  
+
+
+```
+
+
+```{r}
+    
+  library(ggplot2)
+
+ggplot(data = a) +
+  geom_boxplot(aes(x = a$cabin_group, y = a$Fare))
+
+ggplot(data = a) +
+  geom_boxplot(aes(x = Pclass, y = Fare, group = Pclass))
+
+ggplot(data = a[which(a$Embarked == "C"),]) +
+  geom_boxplot(aes(x = Pclass, y = Fare, group = Pclass))
+
+ggplot(data = a[which(a$Embarked == "Q"),]) +
+  geom_boxplot(aes(x = Pclass, y = Fare, group = Pclass))
+
+ggplot(data = a[which(a$Embarked == "S"),]) +
+  geom_boxplot(aes(x = Pclass, y = Fare, group = Pclass))
+
+a[which(a$cabin_group == ""),]
+count(a, a$cabin_group)
+
+```
+
+
+```{r}
+
+ggplot(data = a) +
+  geom_boxplot(aes(x = cabin_group, y = Fare)) +
+  ggtitle(label = "All Data", subtitle = "Cabin Group vs Fare")
+
+ggplot(data = a[which(a$Embarked == "C"),]) +
+  geom_boxplot(aes(x = cabin_group, y = Fare)) +
+  ggtitle(label = "Cherbourg", subtitle = "Cabin Group vs Fare")
+
+ggplot(data = a[which(a$Embarked == "Q"),]) +
+  geom_boxplot(aes(x = cabin_group, y = Fare)) +
+  ggtitle(label = "Queenstown", subtitle = "Cabin Group vs Fare")
+
+ggplot(data = a[which(a$Embarked == "S"),]) +
+  geom_boxplot(aes(x = cabin_group, y = Fare)) +
+  ggtitle(label = "Southampton", subtitle = "Cabin Group vs Fare")
+
+ggplot(a[which(a$cabin_group == ""),]) +
+  geom_histogram(aes(Fare)) +
+  xlim(0,100) +
+  ggtitle(label = "Unlabelled Cabin", subtitle = "Fare distribution")
+
+```
+
+
+
+### Clean dataset 
+```{r}
+# Clean age data
+train$Age <- clean_age$Age
+
+# Clean Embarked data
+train[which(a$Embarked == ""),which(colnames(train) == "Embarked")] <- embarked[embark_assumed,1]
+
+#
+```
+
+
+### Check survival rate per variable
+#### Siblings to survival
+```{r}
+
+# Sibling NOT survived
+not_survived_sibsp <- train[which(train$Survived == 0),] %>%
+  count(SibSp == 0)
+
+# Sibling survived
+survived_sibsp <-train[which(train$Survived == 1),] %>%
+  count(SibSp == 0)
+
+survived_sibsp
+not_survived_sibsp
+
+sibsp_survival_rate <- survived_sibsp$n/(survived_sibsp$n + not_survived_sibsp$n)
+
+sibsp_survival <- data.frame(c("SIBSP", "NOSIBSP"), sibsp_survival_rate)
+sibsp_survival
+
+```
+
+
+#### Parent or children to survival 
+```{r}
+train[which(train$Survived == 1),] %>% count(Parch)
+survived_parch <- train[which(train$Survived == 1),] %>% count(Parch == 0)
+survived_parch
+
+not_survived_parch <- train[which(train$Survived == 0),] %>% count(Parch == 0) 
+not_survived_parch
+
+parch_survival_rate <- survived_parch$n/(survived_parch$n+not_survived_parch$n)
+parch_survival_rate
+
+parch_survival <- data.frame(c("PARCH", "NOPARCH"), parch_survival_rate)
+parch_survival
+```
+
+#### Sex to survival
+```{r}
+
+survived_sex <- train[which(train$Survived == 1),] %>% count(Sex)
+survived_sex
+
+not_survived_sex <- train[which(train$Survived == 0),] %>% count(Sex)
+not_survived_sex
+
+sex_survival_rate <- survived_sex$n/(survived_sex$n+not_survived_sex$n)
+
+sex_survival <- data.frame(survived_sex$Sex, sex_survival_rate)
+sex_survival
+
+```
+
+#### Age to survival
+
+```{r}
+
+library(ggplot2)
+library(gridExtra)
+
+# Survival distribution to age
+age_bin = 10
+age_range = max(train$Age)/age_bin
+
+ggplot(train[which(train$Survived == 1),]) +
+  geom_histogram(aes(Age), bins = age_range) +
+  ggtitle(label = "Survived distribution") +
+  xlim(0, 100) +
+  ylim(0,200) +
+  annotation_custom(tableGrob(survived_sex), xmin = 80, xmax = 100, ymin = 170, ymax = 200) + 
+  theme(
+        panel.background = element_blank(),
+        panel.grid.minor = element_blank(), 
+        panel.grid.major = element_line(color = "gray50", size = 0.5),
+        panel.grid.major.x = element_blank(),
+        text = element_text(face = "bold"),
+        axis.text.y = element_text(colour="gray32", size = 14),
+        axis.text.x = element_text(colour="gray32", size = 14),
+        axis.ticks = element_line(colour = 'gray50'),
+        axis.ticks.length = unit(.25, "cm"),
+        axis.ticks.x = element_line(colour = "black"),
+        axis.ticks.y = element_blank(),
+        plot.title = element_text(hjust = -0, vjust=2.12, colour="springgreen4", size = 14, face = "bold"))
+
+ggplot(train[which(train$Survived == 0),]) +
+  geom_histogram(aes(Age), bins = age_range) +
+  ggtitle(label = "NOT Survived distribution") +
+  xlim(0, 100) +
+  ylim(0,200) +
+  annotation_custom(tableGrob(not_survived_sex), xmin = 80, xmax = 100, ymin = 170, ymax = 200) +
+  theme(
+        panel.background = element_blank(),
+        panel.grid.minor = element_blank(), 
+        panel.grid.major = element_line(color = "gray50", size = 0.5),
+        panel.grid.major.x = element_blank(),
+        text = element_text(face = "bold"),
+        axis.text.y = element_text(colour="gray32", size = 14),
+        axis.text.x = element_text(colour="gray32", size = 14),
+        axis.ticks = element_line(colour = 'gray50'),
+        axis.ticks.length = unit(.25, "cm"),
+        axis.ticks.x = element_line(colour = "black"),
+        axis.ticks.y = element_blank(),
+        plot.title = element_text(hjust = -0, vjust=2.12, colour="springgreen4", size = 14, face = "bold"))
+
+# 
+age_category <- cut(train$Age,age_range*(0:age_bin), labels = letters[1:age_bin]) 
+
+a <- train
+
+a$age_category <- age_category
+
+count(a, a$age_category)
+
+survived_age <- a[which(a$Survived == 1),] %>% count(age_category, .drop = FALSE)
+not_survived_age <- a[which(a$Survived == 0),] %>% count(age_category, .drop = FALSE)
+
+survived_age
+not_survived_age
+
+age_survival_rate <- survived_age$n/(survived_age$n+not_survived_age$n)
+
+age_survival <- data.frame(letters[1:age_bin], age_survival_rate)
+age_survival
+
+
+```
+
+
+
+#### Ticket class to survival
+
+```{r}
+
+survived_class <- train[which(train$Survived == 1),] %>% count(Pclass)
+survived_class
+
+not_survived_class <- train[which(train$Survived == 0),] %>% count(Pclass)
+not_survived_class
+
+class_survival_rate <- survived_class$n/(survived_class$n+not_survived_class$n)
+
+class_survival <- data.frame(survived_class$Pclass, class_survival_rate)
+class_survival
+
+```
+
+
+#### Fare to survival
+
+```{r}
+train[which(train$Pclass == 1),] %>%
+  ggplot() +
+  geom_histogram(aes(Fare), bins = 20)
+
+View(train[which(train$Fare > 100),])
+
+ggplot(train) +
+  geom_histogram(aes(train$Fare))
+
+train[which(train$Survived ==1),] %>% count(Fare)
+
+```
+
+
+### Update dataset using the survival percentage of each variable
+
+
+```{r}
+a <- train
+
+# Pclass
+a$surv_pclass <- sapply(a$Pclass, function(Pclass){
+                    if (Pclass == class_survival[1,1]) {
+                      return(class_survival[1,2])
+                    } else if (Pclass == class_survival[2,1]) {
+                      return(class_survival[2,2])
+                    } else if (Pclass == class_survival[3,1]){
+                      return(class_survival[3,2])
+                    }
+                  })
+
+# Sex 
+a$surv_sex <- sapply(a$Sex, function(Sex){
+                    if (Sex == sex_survival[1,1]) {
+                      return(sex_survival[1,2])
+                    } else if (Sex == sex_survival[2,1]) {
+                      return(sex_survival[2,2])
+                    } 
+                  })
+
+# Age
+b <-  cut(a$Age,age_range*(0:age_bin), labels = letters[1:age_bin]) %>% 
+        data.frame() %>%
+        left_join(, y = age_survival, by = c("." = "letters.1.age_bin."))
+
+a$surv_age <- b$age_survival_rate
+
+# Sibsp
+
+
+# Parch
+
+
+# 
+
+```
+
+
+### Check the update on new var
+```{r}
+
+b <- class_survival$survived_class.Pclass
+
+mem <- data.frame(row.names = b, b)
+
+for (x in 1:2) {
+  mem1 <- a[which(a$Survived == 0 & a$Sex == sex_survival$survived_sex.Sex[x]),] %>% count(Pclass)
+  mem2 <- a[which(a$Survived == 1 & a$Sex == sex_survival$survived_sex.Sex[x]),] %>% count(Pclass)
+  mem[x+1] <- mem2$n/(mem1$n+mem2$n)
+  colnames(mem[x+1]) <- sex_survival$survived_sex.Sex[x]
+  }
+mem
+
+```
+
+###
+```{r}
+
+
+a[which(a$Sex == "male" & a$Survived == 1),] %>% count(Pclass)
+a[which(a$Sex == "male" & a$Survived == 0),] %>% count(Pclass)
+
+a[which(a$Sex == "male" & a$Survived == 1 & a$Pclass == 1),] %>% count(Parch)
+a[which(a$Sex == "male" & a$Survived == 0 & a$Pclass == 1),] %>% count(Parch)
+
+```
+
